@@ -50,6 +50,13 @@ def run_agent_task(task_id: int):
         db.commit()
         add_log(db, task, "Ollama generated a proposed result and summary.")
 
+        set_status(
+            db,
+            task,
+            TaskStatus.waiting_approval,
+            "Waiting for human approval before final completion.",
+        )
+
         if telegram_configured():
             try:
                 send_approval_message(task.id, task.title, task.summary or "")
@@ -58,13 +65,6 @@ def run_agent_task(task_id: int):
                 add_log(db, task, f"Telegram send failed: {exc}")
         else:
             add_log(db, task, "Telegram is not configured. Use dashboard approval buttons.")
-
-        set_status(
-            db,
-            task,
-            TaskStatus.waiting_approval,
-            "Waiting for human approval before final completion.",
-        )
 
         while True:
             db.refresh(task)
