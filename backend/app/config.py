@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     code_context_root: str = "."
     frontend_url: str = "http://localhost:5173"
     backend_url: str = "http://localhost:8000"
+    agent_workspace_root: str = "/app/agent_runs"
+    agent_max_actions: int = 8
+    agent_command_timeout_seconds: int = 20
+    ollama_connect_timeout_seconds: int = 10
+    ollama_read_timeout_seconds: int = 900
+    ollama_pull_timeout_seconds: int = 3600
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
