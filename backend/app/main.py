@@ -8,6 +8,7 @@ from app.database import init_db
 from app.routes import tasks, telegram
 from app.services.websocket_manager import manager, redis_event_listener
 from app.services.ollama_service import ensure_model_available
+from app.services.telegram_service import ensure_webhook_configured
 
 app = FastAPI(title="AI Agent Approval Assistant")
 
@@ -27,6 +28,7 @@ app.include_router(telegram.router)
 async def on_startup():
     init_db()
     ensure_model_available()
+    ensure_webhook_configured()
     asyncio.create_task(redis_event_listener())
 
 
