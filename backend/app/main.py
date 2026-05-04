@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import init_db
 from app.routes import tasks, telegram
 from app.services.websocket_manager import manager, redis_event_listener
+from app.services.ollama_service import ensure_model_available
 
 app = FastAPI(title="AI Agent Approval Assistant")
 
@@ -25,6 +26,7 @@ app.include_router(telegram.router)
 @app.on_event("startup")
 async def on_startup():
     init_db()
+    ensure_model_available()
     asyncio.create_task(redis_event_listener())
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Bot, RefreshCcw } from "lucide-react";
 import { api } from "../api.js";
 import { connectTaskSocket } from "../socket.js";

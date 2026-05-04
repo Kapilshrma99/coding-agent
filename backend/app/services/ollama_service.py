@@ -1,7 +1,11 @@
 import requests
 from pathlib import Path
+import time
+import logging
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """
@@ -45,6 +49,50 @@ IGNORED_DIRS = {
 }
 MAX_CONTEXT_CHARS = 26000
 MAX_FILE_CHARS = 5000
+
+
+def ensure_model_available():
+    """Ensure the Ollama model is available before any requests."""
+    max_retries = 60
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # Check if Ollama is up
+            response = requests.get(
+                f"{settings.ollama_url}/api/tags",
+                timeout=5
+            )
+            response.raise_for_status()
+            
+            # Check if model is already present
+            tags = response.json().get("models", [])
+            model_names = [m.get("name", "") for m in tags]
+            
+            if any(settings.ollama_model in name for name in model_names):
+                logger.info(f"Model {settings.ollama_model} is available")
+                return True
+            
+            # Pull the model
+            logger.info(f"Pulling model {settings.ollama_model}...")
+            pull_response = requests.post(
+                f"{settings.ollama_url}/api/pull",
+                json={"name": settings.ollama_model},
+                timeout=3600  # Allow up to 1 hour for model pull
+            )
+            pull_response.raise_for_status()
+            logger.info(f"Model {settings.ollama_model} pulled successfully")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                logger.error(f"Failed to reach Ollama after {max_retries} retries: {e}")
+                raise
+            logger.info(f"Ollama not ready yet (attempt {retry_count}/{max_retries}), retrying in 2s...")
+            time.sleep(2)
+    
+    return False
 
 
 def _repo_root() -> Path:

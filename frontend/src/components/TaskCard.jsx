@@ -1,3 +1,5 @@
+import React from "react";
+
 export default function TaskCard({ task, selected, onClick }) {
   return (
     <button className={`taskCard ${selected ? "selected" : ""}`} onClick={onClick}>
