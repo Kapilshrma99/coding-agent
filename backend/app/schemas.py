@@ -8,6 +8,8 @@ from app.models import TaskStatus
 class TaskCreate(BaseModel):
     title: str
     prompt: str
+    context_path: str | None = None
+    pasted_context: str | None = None
 
 
 class TaskLogRead(BaseModel):
@@ -22,6 +24,9 @@ class TaskRead(BaseModel):
     id: int
     title: str
     prompt: str
+    context_path: str | None
+    pasted_context: str | None
+    llm_prompt: str | None
     status: TaskStatus
     result: str | None
     summary: str | None

@@ -72,6 +72,15 @@ export default function Dashboard() {
         return;
       }
 
+      if (event.event === "task_prompt" && typeof event.llm_prompt === "string") {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === event.task_id ? { ...task, llm_prompt: event.llm_prompt } : task
+          )
+        );
+        return;
+      }
+
       if (event.event === "task_result") {
         setTasks((current) =>
           current.map((task) =>
@@ -150,6 +159,18 @@ export default function Dashboard() {
               <section>
                 <h3>Prompt</h3>
                 <pre>{selectedTask.prompt}</pre>
+              </section>
+              <section>
+                <h3>Context Path</h3>
+                <pre>{selectedTask.context_path || "No explicit path attached."}</pre>
+              </section>
+              <section>
+                <h3>Pasted Context</h3>
+                <pre>{selectedTask.pasted_context || "No pasted context attached."}</pre>
+              </section>
+              <section>
+                <h3>Full LLM Prompt</h3>
+                <pre>{selectedTask.llm_prompt || "Waiting for the full prompt captured by the worker."}</pre>
               </section>
               <section>
                 <h3>Summary</h3>

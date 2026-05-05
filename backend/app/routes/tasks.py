@@ -29,7 +29,13 @@ def get_task_or_404(db: Session, task_id: int) -> Task:
 
 @router.post("", response_model=TaskRead)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
-    task = Task(title=payload.title, prompt=payload.prompt, status=TaskStatus.pending)
+    task = Task(
+        title=payload.title,
+        prompt=payload.prompt,
+        context_path=payload.context_path,
+        pasted_context=payload.pasted_context,
+        status=TaskStatus.pending,
+    )
     db.add(task)
     db.commit()
     db.refresh(task)

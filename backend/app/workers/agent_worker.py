@@ -83,6 +83,8 @@ def run_agent_task(task_id: int):
         try:
             output = call_ollama(
                 task.prompt,
+                context_path=task.context_path,
+                pasted_context=task.pasted_context,
                 on_chunk=handle_llm_chunk,
                 on_log=handle_llm_log,
             )
@@ -92,6 +94,16 @@ def run_agent_task(task_id: int):
             db.commit()
             set_status(db, task, TaskStatus.stopped, f"Ollama failed: {exc}")
             return
+
+        task.llm_prompt = str(output.get("prompt_text") or "")
+        db.commit()
+        publish_task_event(
+            task.id,
+            task.status.value,
+            event="task_prompt",
+            llm_prompt=task.llm_prompt,
+        )
+        add_log(db, task, f"Captured full LLM prompt ({len(task.llm_prompt)} chars).")
 
         publish_task_event(
             task.id,

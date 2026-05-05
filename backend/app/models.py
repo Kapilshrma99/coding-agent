@@ -23,6 +23,9 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    context_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pasted_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(
         Enum(TaskStatus), default=TaskStatus.pending, nullable=False, index=True
     )

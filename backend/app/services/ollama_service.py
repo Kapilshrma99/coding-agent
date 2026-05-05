@@ -102,6 +102,10 @@ Rules:
 - Keep the summary dense and technical.
 """
 
+TASK_GENERATION_NO_CONTEXT_MESSAGE = (
+    "No repository context was attached. Use pasted code or an explicit context path if needed."
+)
+
 
 def _summary_model_name() -> str:
     return settings.ollama_summary_model.strip() or settings.ollama_model
@@ -175,6 +179,19 @@ def _repo_root() -> Path:
     return root.resolve()
 
 
+def _resolve_explicit_context_path(context_path: str) -> Path:
+    if not context_path.strip():
+        raise ValueError("Context path is empty")
+
+    candidate = Path(context_path.strip())
+    root = _repo_root()
+    resolved = (root / candidate).resolve() if not candidate.is_absolute() else candidate.resolve()
+
+    if resolved != root and root not in resolved.parents:
+        raise ValueError("Context path must stay inside the configured code context root")
+    return resolved
+
+
 def _iter_context_files(root: Path):
     for path in sorted(root.rglob("*")):
         if not path.is_file():
@@ -216,6 +233,98 @@ def _collect_context_segments() -> list[str]:
             segment_index += 1
 
     return segments
+
+
+def _collect_path_segments(context_path: str) -> list[str]:
+    resolved = _resolve_explicit_context_path(context_path)
+
+    if resolved.is_file():
+        targets = [resolved]
+        base = resolved.parent
+    elif resolved.is_dir():
+        targets = list(_iter_context_files(resolved))
+        base = resolved
+    else:
+        raise ValueError(f"Context path not found: {context_path}")
+
+    segments: list[str] = []
+    for path in sorted(targets):
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        stripped = content.strip()
+        if not stripped:
+            continue
+
+        relative = path.relative_to(base).as_posix() if path != base else path.name
+        if len(stripped) <= MAX_FILE_SEGMENT_CHARS:
+            segments.append(f"--- {relative} ---\n{stripped}\n")
+            continue
+
+        start = 0
+        segment_index = 1
+        while start < len(stripped):
+            part = stripped[start : start + MAX_FILE_SEGMENT_CHARS]
+            segments.append(f"--- {relative} (segment {segment_index}) ---\n{part}\n")
+            start += MAX_FILE_SEGMENT_CHARS
+            segment_index += 1
+
+    return segments
+
+
+def _build_task_context(
+    context_path: str | None,
+    pasted_context: str | None,
+    context_budget: int,
+    on_log: Callable[[str], None] | None = None,
+) -> str:
+    sections: list[str] = []
+
+    if pasted_context and pasted_context.strip():
+        pasted = pasted_context.strip()
+        sections.append(f"Pasted code/context:\n{pasted[:context_budget]}")
+        if on_log:
+            on_log(f"Using pasted context with {len(pasted)} chars.")
+
+    if context_path and context_path.strip():
+        if on_log:
+            on_log(f"Loading explicit context path: {context_path.strip()}")
+        segments = _collect_path_segments(context_path)
+        if not segments:
+            if on_log:
+                on_log(f"No readable code files found under explicit context path: {context_path.strip()}")
+        else:
+            path_budget = max(0, context_budget - sum(len(section) for section in sections))
+            raw_context = ""
+            total = 0
+            chunks: list[str] = []
+            for segment in segments:
+                if total + len(segment) > path_budget:
+                    break
+                chunks.append(segment)
+                total += len(segment)
+            raw_context = "".join(chunks).strip()
+            path_context = raw_context
+            if total < sum(len(segment) for segment in segments) and path_budget >= MIN_CONTEXT_CHARS:
+                if on_log:
+                    on_log("Explicit context path exceeds budget; summarizing in chunks.")
+                path_context = _summarize_context_segments(segments, path_budget, on_log=on_log)
+            if path_context:
+                sections.append(f"Explicit path context ({context_path.strip()}):\n{path_context}")
+                if on_log:
+                    on_log(f"Using explicit path context from {context_path.strip()}.")
+
+    if not sections:
+        if on_log:
+            on_log(TASK_GENERATION_NO_CONTEXT_MESSAGE)
+        return TASK_GENERATION_NO_CONTEXT_MESSAGE
+
+    combined = "\n\n".join(sections)
+    if len(combined) > context_budget and context_budget > 0:
+        return combined[:context_budget]
+    return combined
 
 
 def build_code_context(max_chars: int | None = None) -> str:
@@ -379,14 +488,25 @@ def _build_prompt_with_context(
 
 def call_ollama(
     prompt: str,
+    context_path: str | None = None,
+    pasted_context: str | None = None,
     on_chunk: Callable[[str, str], None] | None = None,
     on_log: Callable[[str], None] | None = None,
-) -> dict[str, str]:
-    prompt_text = _build_prompt_with_context(
-        prefix=f"{SYSTEM_PROMPT}\n\nRepository context:\n",
-        suffix=f"\n\nUser task:\n{prompt}",
+) -> dict[str, str | list[dict]]:
+    prefix = f"{SYSTEM_PROMPT}\n\nRepository context:\n"
+    suffix = f"\n\nUser task:\n{prompt}"
+    context_budget = _compute_context_budget(prefix, suffix)
+    task_context = _build_task_context(
+        context_path=context_path,
+        pasted_context=pasted_context,
+        context_budget=context_budget,
         on_log=on_log,
     )
+    prompt_text = f"{prefix}{task_context}{suffix}"
+    if on_log:
+        on_log(
+            f"Prepared task generation prompt with {len(task_context)} chars of explicit context."
+        )
     raw_response = _stream_generate_response(
         prompt=prompt_text,
         response_format="json",
@@ -400,6 +520,7 @@ def call_ollama(
         "summary": parsed["summary"],
         "actions": parsed["actions"],
         "raw_response": raw_response,
+        "prompt_text": prompt_text,
     }
 
 
