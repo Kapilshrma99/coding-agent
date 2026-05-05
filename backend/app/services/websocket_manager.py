@@ -36,9 +36,10 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def publish_task_event(task_id: int, status: str, event: str = "task_updated"):
+def publish_task_event(task_id: int, status: str, event: str = "task_updated", **payload: Any):
     redis = Redis.from_url(settings.redis_url)
-    redis.publish(CHANNEL, json.dumps({"event": event, "task_id": task_id, "status": status}))
+    message = {"event": event, "task_id": task_id, "status": status, **payload}
+    redis.publish(CHANNEL, json.dumps(message))
     redis.close()
 
 

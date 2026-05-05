@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     ollama_url: str = "http://ollama:11434"
     ollama_model: str = "qwen2.5-coder:7b"
+    ollama_summary_model: str = ""
+    ollama_num_ctx: int = 8192
+    ollama_summary_num_ctx: int = 4096
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     code_context_root: str = "."

@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState("");
+  const [liveOutputByTask, setLiveOutputByTask] = useState({});
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === selectedId) || tasks[0],
@@ -28,7 +29,64 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadTasks();
-    const socket = connectTaskSocket(() => loadTasks());
+    const socket = connectTaskSocket((event) => {
+      if (event.event === "task_updated") {
+        loadTasks();
+        return;
+      }
+
+      if (event.event === "task_log" && event.log) {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === event.task_id
+              ? {
+                  ...task,
+                  status: event.status || task.status,
+                  logs: [...task.logs, event.log],
+                }
+              : task
+          )
+        );
+        return;
+      }
+
+      if (event.event === "llm_stream_started") {
+        setLiveOutputByTask((current) => ({ ...current, [event.task_id]: "" }));
+        return;
+      }
+
+      if (event.event === "llm_chunk" && typeof event.chunk === "string") {
+        setLiveOutputByTask((current) => ({
+          ...current,
+          [event.task_id]: `${current[event.task_id] || ""}${event.chunk}`,
+        }));
+        return;
+      }
+
+      if (event.event === "task_partial_result" && typeof event.result === "string") {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === event.task_id ? { ...task, result: event.result } : task
+          )
+        );
+        return;
+      }
+
+      if (event.event === "task_result") {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === event.task_id
+              ? {
+                  ...task,
+                  status: event.status || task.status,
+                  result: event.result ?? task.result,
+                  summary: event.summary ?? task.summary,
+                }
+              : task
+          )
+        );
+      }
+    });
     return () => socket.close();
   }, []);
 
@@ -46,6 +104,8 @@ export default function Dashboard() {
     }
     await loadTasks();
   }
+
+  const liveOutput = selectedTask ? liveOutputByTask[selectedTask.id] || "" : "";
 
   return (
     <main className="shell">
@@ -98,6 +158,10 @@ export default function Dashboard() {
               <section>
                 <h3>Result</h3>
                 <pre>{selectedTask.result || "No result yet."}</pre>
+              </section>
+              <section>
+                <h3>Live Model Stream</h3>
+                <pre>{liveOutput || "Waiting for streamed model output."}</pre>
               </section>
               <section>
                 <h3>Logs</h3>

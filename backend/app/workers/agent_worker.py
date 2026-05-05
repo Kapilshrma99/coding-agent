@@ -1,5 +1,6 @@
 import time
 import re
+from datetime import datetime, timezone
 
 from celery.utils.log import get_task_logger
 
@@ -15,16 +16,28 @@ logger = get_task_logger(__name__)
 
 
 def add_log(db, task: Task, message: str):
-    db.add(TaskLog(task_id=task.id, message=message))
+    log = TaskLog(task_id=task.id, message=message)
+    db.add(log)
     db.commit()
+    db.refresh(log)
     db.refresh(task)
+    publish_task_event(
+        task.id,
+        task.status.value,
+        event="task_log",
+        log={
+            "id": log.id,
+            "message": log.message,
+            "created_at": _isoformat(log.created_at),
+        },
+    )
 
 
 def set_status(db, task: Task, status: TaskStatus, message: str):
     task.status = status
     db.commit()
-    add_log(db, task, message)
     publish_task_event(task.id, status.value)
+    add_log(db, task, message)
 
 
 @celery_app.task(name="run_agent_task")
@@ -38,14 +51,54 @@ def run_agent_task(task_id: int):
 
         set_status(db, task, TaskStatus.running, "Worker started task.")
         add_log(db, task, "Calling Ollama for task plan.")
+        task.result = ""
+        db.commit()
+        publish_task_event(task.id, task.status.value, event="llm_stream_started")
+
+        last_saved_length = 0
+
+        def handle_llm_chunk(chunk: str, full_text: str):
+            nonlocal last_saved_length
+            publish_task_event(
+                task.id,
+                task.status.value,
+                event="llm_chunk",
+                chunk=chunk,
+            )
+            if len(full_text) - last_saved_length < 500:
+                return
+            task.result = full_text
+            db.commit()
+            last_saved_length = len(full_text)
+            publish_task_event(
+                task.id,
+                task.status.value,
+                event="task_partial_result",
+                result=full_text,
+            )
+
+        def handle_llm_log(message: str):
+            add_log(db, task, f"LLM: {message}")
 
         try:
-            output = call_ollama(task.prompt)
+            output = call_ollama(
+                task.prompt,
+                on_chunk=handle_llm_chunk,
+                on_log=handle_llm_log,
+            )
         except Exception as exc:
             task.summary = "Ollama call failed."
             task.result = str(exc)
+            db.commit()
             set_status(db, task, TaskStatus.stopped, f"Ollama failed: {exc}")
             return
+
+        publish_task_event(
+            task.id,
+            task.status.value,
+            event="llm_stream_completed",
+            result=output.get("raw_response", ""),
+        )
 
         actions = _ensure_minimum_actions(
             task.prompt,
@@ -83,6 +136,13 @@ def run_agent_task(task_id: int):
         task.result = "\n\n".join(result_parts)
         task.summary = _build_summary(output["summary"], workspace_tree)
         db.commit()
+        publish_task_event(
+            task.id,
+            task.status.value,
+            event="task_result",
+            result=task.result,
+            summary=task.summary,
+        )
         add_log(db, task, "Agent generated a result and executed guarded workspace actions.")
         for entry in execution["logs"]:
             add_log(db, task, entry)
@@ -132,6 +192,14 @@ def _build_summary(summary: str, workspace_tree: str) -> str:
         files_line = f"Workspace files:\n{workspace_tree}"
     combined = f"{summary}\n\n{files_line}".strip()
     return combined[:700] + ("..." if len(combined) > 700 else "")
+
+
+def _isoformat(value: datetime | None) -> str:
+    if value is None:
+        value = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
 
 
 def _ensure_minimum_actions(
