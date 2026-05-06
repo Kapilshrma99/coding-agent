@@ -1,35 +1,63 @@
 # AI Agent Approval Assistant
 
-A self-hosted full-stack MVP where a Python agent runs in Docker, uses a local Ollama model, sends a Telegram approval request, and waits for human approval before completing.
+A self-hosted full-stack MVP where a Python agent runs locally, uses a local Ollama model, sends a Telegram approval request, and waits for human approval before completing.
 
-## Start Services
+## Local Setup
 
-1. Create your environment file:
+1. Create and activate a Python virtual environment inside `backend`.
+
+2. Install backend dependencies:
 
 ```bash
-cp .env.example .env
+pip install -r backend/requirements.txt
 ```
 
-2. Start everything:
+3. Install frontend dependencies:
 
 ```bash
-docker compose up --build
+cd frontend
+npm install
+cd ..
+```
+
+4. Copy `.env.example` to `.env` if needed and adjust values.
+
+5. Make sure Ollama is installed and running on your machine, then pull the default model:
+
+```bash
+ollama pull qwen2.5-coder:7b
+```
+
+6. Start the backend:
+
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+7. Start the frontend in a second terminal:
+
+```bash
+cd frontend
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 The dashboard runs at `http://localhost:5173` and the API runs at `http://localhost:8000`.
 
-## Pull An Ollama Model
+## Defaults
 
-After the Ollama container starts, pull the default model:
+The project now runs locally by default with:
+
+- `SQLite` at `backend/agent_app.db`
+- local task execution with no Celery worker required
+- optional `Redis` only if you want external pub/sub behavior
+- local Ollama at `http://localhost:11434`
+
+If you want to switch back to a queue-based setup later, set:
 
 ```bash
-docker exec -it ollama ollama pull qwen2.5-coder:7b
-```
-
-You can switch models by changing `OLLAMA_MODEL` in `.env`, then pulling that model:
-
-```bash
-OLLAMA_MODEL=qwen2.5-coder:7b
+TASK_EXECUTION_MODE=celery
+REDIS_URL=redis://localhost:6379/0
 ```
 
 Suggested choices:
@@ -38,7 +66,7 @@ Suggested choices:
 - `deepseek-coder:6.7b` for stronger coding on machines with enough RAM.
 - `qwen2.5-coder:3b` for lower RAM machines.
 
-The app does not auto-select between these models. You choose one in `.env`.
+The app does not auto-select between models. You choose one in `.env`.
 
 ## Telegram Setup
 
@@ -113,7 +141,7 @@ FastAPI publishes task status changes through Redis and broadcasts them over Web
 ws://localhost:8000/ws/tasks
 ```
 
-The React dashboard subscribes automatically and refreshes the task list whenever a status changes.
+The React dashboard subscribes automatically and refreshes the task list whenever a status changes. In default local mode, this works without Redis.
 
 ## Safety Behavior
 

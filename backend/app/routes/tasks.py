@@ -1,7 +1,10 @@
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import settings
 from app.database import get_db
 from app.models import Task, TaskLog, TaskStatus
 from app.schemas import TaskCreate, TaskRead
@@ -9,6 +12,15 @@ from app.services.websocket_manager import publish_task_event
 from app.workers.agent_worker import run_agent_task
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def enqueue_task(task_id: int):
+    # Local mode avoids requiring Redis/Celery for simple development.
+    if settings.task_execution_mode.strip().lower() == "local":
+        worker = threading.Thread(target=run_agent_task, args=(task_id,), daemon=True)
+        worker.start()
+        return
+    run_agent_task.delay(task_id)
 
 
 def log_and_publish(db: Session, task: Task, message: str):
@@ -40,7 +52,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(task)
     log_and_publish(db, task, "Task created and queued.")
-    run_agent_task.delay(task.id)
+    enqueue_task(task.id)
     return get_task_or_404(db, task.id)
 
 

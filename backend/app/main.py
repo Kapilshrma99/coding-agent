@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.routes import tasks, telegram
-from app.services.websocket_manager import manager, redis_event_listener
+from app.services.websocket_manager import configure_event_loop, manager, redis_event_listener
 from app.services.ollama_service import ensure_model_available
 from app.services.telegram_service import ensure_webhook_configured
 
@@ -26,6 +26,7 @@ app.include_router(telegram.router)
 
 @app.on_event("startup")
 async def on_startup():
+    configure_event_loop(asyncio.get_running_loop())
     init_db()
     ensure_model_available()
     ensure_webhook_configured()
